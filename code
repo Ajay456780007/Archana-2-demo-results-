@@ -1,0 +1,100 @@
+class Analysis:
+
+    def __init__(self):
+        self.task_sizes = [2000, 4000, 6000, 8000, 10000]
+        self.vm_sizes = [5, 10, 15, 20]
+        self.method = "HYBRID"
+        self.num_runs = 1
+
+        # Result folder
+        self.base_path = "Analysis"
+
+        self.metrics = [
+            "Makespan", "Energy", "Utilization",
+            "Throughput", "ResponseTime",
+            "WaitingTime", "TurnaroundTime",
+            "DegreeOfImbalance"
+        ]
+
+        # Create folders
+        for m in self.metrics:
+            os.makedirs(os.path.join(self.base_path, m), exist_ok=True)
+
+    def Simulation_Analysis(self, DB):
+
+        for num_vm in self.vm_sizes:
+
+            cprint(f"\n🟣 Running Experiments for {num_vm} VMs", "magenta", attrs=["bold"])
+
+            results = {m: [] for m in self.metrics}
+
+            for num_tasks in self.task_sizes:
+
+                cprint(f"\n🔵 Tasks: {num_tasks}  |  VMs: {num_vm}", "cyan")
+
+                run_metrics = {m: [] for m in self.metrics}
+
+                for run in range(self.num_runs):
+                    cprint(f"   ▶ Run {run+1}/3", "yellow")
+
+                    C = COMPLETE_ANALYSIS(num_vm=num_vm, dataset=DB)
+                    C.load_and_queue_tasks(num_tasks=num_tasks)
+
+                    scheduled_tasks, vms = C.run_task_scheduling(self.method, C)
+
+                    # ---------------- METRICS ----------------
+                    makespan = max(vm.busy_until for vm in vms)
+                    total_energy = sum(vm.used_energy for vm in vms)
+
+                    total_exec = sum(vm.total_exec_time for vm in vms)
+                    utilization = total_exec / (num_vm * makespan)
+
+                    vm_exec_times = [vm.total_exec_time for vm in vms]
+
+                    T_max = max(vm_exec_times)
+                    T_min = min(vm_exec_times)
+                    T_avg = np.mean(vm_exec_times)
+
+                    degree_imbalance = (T_max - T_min) / T_avg if T_avg > 0 else 0
+
+                    feasible_tasks = [t for t in scheduled_tasks if t.finish_time is not None]
+
+                    throughput = len(feasible_tasks) / makespan
+
+                    response = np.mean([
+                        t.start_time - t.Arrival_time for t in feasible_tasks
+                    ])
+
+                    waiting = np.mean([
+                        t.start_time - t.Arrival_time for t in feasible_tasks
+                    ])
+
+                    tat = np.mean([
+                        t.finish_time - t.Arrival_time for t in feasible_tasks
+                    ])
+
+                    # Store this run
+                    run_metrics["Makespan"].append(makespan)
+                    run_metrics["Energy"].append(total_energy)
+                    run_metrics["Utilization"].append(utilization)
+                    run_metrics["Throughput"].append(throughput)
+                    run_metrics["ResponseTime"].append(response)
+                    run_metrics["WaitingTime"].append(waiting)
+                    run_metrics["TurnaroundTime"].append(tat)
+                    run_metrics["DegreeOfImbalance"].append(degree_imbalance)
+
+                # ---- Average of 3 runs ----
+                for m in self.metrics:
+                    avg = np.mean(run_metrics[m])
+                    results[m].append(avg)
+                    cprint(f"      {m}: {avg:.4f}", "green")
+
+            # -------- SAVE FILES for this VM count --------
+            for m in self.metrics:
+                np.save(
+                    os.path.join(self.base_path, m, f"{DB}_{self.method}_VM{num_vm}.npy"),
+                    np.array(results[m])
+                )
+
+            cprint(f"\n✅ Results saved for {num_vm} VMs", "green", attrs=["bold"])
+
